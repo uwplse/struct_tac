@@ -1,0 +1,6 @@
+[package]
+name = "struct_tac"
+version = "0.1"
+lean_version = "master"
+
+[dependencies]
