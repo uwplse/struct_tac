@@ -37,7 +37,7 @@ meta def induction_preserve_constants (induction_var : name) : tactic unit :=
               iv ← get_local induction_var,
               seq (`[induction %%iv])
                 (do monad.mapm (fun n, get_local n >>= revert) ns,
-                    `[dsimp *],
+                    `[try { dsimp * }],
                      intros,
                     -- generalize me
                     -- monad.mapm (fun _, do n ← get_unused_name `eq, intro n >>= subst) ns,
@@ -72,7 +72,3 @@ do tgt ← target,
      else do intro binder_name, induction_on
    | _ := induction_preserve_constants induction_var
    end
-
-run_cmd add_interactive [
-  `induction_on
-]

@@ -1,7 +1,12 @@
+import init.meta.lean.parser
+import .induction_on
+
+open tactic
+open interactive
+
 meta def simp_coe :=
   `[unfold coe lift_t has_lift_t.lift coe_t has_coe_t.coe coe_b has_coe.coe,
     try { dsimp * at * }]
-
 
 -- (* https://github.com/uwplse/StructTact *)
 
@@ -481,11 +486,6 @@ meta def simp_coe :=
 -- Ltac ee :=
 --   econstructor; eauto.
 
-import init.meta.lean.parser
-
-open tactic
-open interactive
-
 def for_m {m : Type → Type} {α β : Type} [monad_m : monad m] (action : list α) (f : α → m β) : m (list β) :=
 monad.mapm f action
 
@@ -712,19 +712,6 @@ do h ← get_local n,
    h ← get_local n,
    -- dsimp_hyp h none [`bind, `option.bind],
    return ()
-
-meta def induction_on (induction_var : parse lean.parser.ident) : tactic unit :=
-do tgt ← target,
-   match tgt with
-   | (expr.pi binder_name _ _ _) :=
-     if binder_name = induction_var
-     then do intro binder_name,
-             ivar_local ← get_local binder_name,
-             induction ivar_local,
-             return ()
-     else do intro binder_name, induction_on
-   | _ := tactic.fail $ "induction_on: unknown name `" ++ induction_var.to_string ++ "`"
-   end
 
 run_cmd add_interactive [
   `induction_on,
