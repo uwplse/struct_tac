@@ -480,3 +480,253 @@ meta def simp_coe :=
 
 -- Ltac ee :=
 --   econstructor; eauto.
+
+import init.meta.lean.parser
+
+open tactic
+open interactive
+
+def for_m {m : Type → Type} {α β : Type} [monad_m : monad m] (action : list α) (f : α → m β) : m (list β) :=
+monad.mapm f action
+
+private meta def until_first_hyp_aux (f : expr → tactic unit) : list expr → tactic unit
+| [] := tactic.fail "until_first_hyp: provided tactic did not succed on any hypotheses"
+| (h :: hs) := f h <|> until_first_hyp_aux hs
+
+meta def until_first_hyp (action : expr → tactic unit) : tactic unit :=
+  do ls ← local_context,
+     until_first_hyp_aux action ls
+
+def subterm_err_msg := "subterms: only provides subterms of applications; i.e terms of the form (f x_1 ... x_n)"
+
+meta def subterms : expr → (expr → list expr → tactic unit) → tactic unit
+| (expr.app f g) action :=
+  let head := expr.get_app_fn (expr.app f g),
+      args := expr.get_app_args (expr.app f g)
+  in action head args <|> list.foldl (<|>) (tactic.fail subterm_err_msg) (args.map (fun e, subterms e action))
+| _ _ := tactic.fail subterm_err_msg
+
+meta def is_match_wrapper (n : name): bool :=
+match n.components.ilast with
+| name.mk_string s _ := s.to_list.take 7 = "_match_".to_list
+| _ := bool.ff
+end
+
+meta def find_scrutinee : list expr → tactic expr :=
+fun xs, return (xs.ilast)
+
+meta def rw_one (hyp_name : option name) (eq_n : name) : tactic unit :=
+match hyp_name with
+| none := do eq ← get_local eq_n, rewrite_target eq
+| some hn :=
+ do eq ← get_local eq_n,
+    H ← get_local hn,
+    rewrite_hyp eq H,
+    return ()
+end
+
+/- Removes any reflexive equalities of the form a = a. -/
+meta def clear_refl_eqs : tactic unit :=
+  do ls ← local_context,
+     for_m ls (λ l,
+       do ty ← infer_type l,
+       -- is there a better way to write this?
+       (do (a, b) ← match_eq ty,
+           if a = b
+           then clear l
+           else return ()) <|> return ()),
+     return ()
+
+meta def intros_and_subst (hyp_name : option name) : tactic unit :=
+do tgt ← target,
+   if tgt.is_pi
+   then do n ← get_unused_name `a,
+           H ← intro n,
+           -- trace H,
+           ty ← infer_type H,
+           try (rw_one hyp_name n),
+           intros_and_subst
+    else return ()
+
+meta def split_app (e : expr) : tactic (expr × list expr) :=
+match e with
+| (expr.app _ _) :=
+  let head := expr.get_app_fn e,
+      args := expr.get_app_args e
+  in return (head, args)
+| _ := tactic.fail "expected an application found ..."
+end
+
+meta def find_match (head : expr) (args : list expr) : tactic (name × expr) :=
+if is_match_wrapper head.const_name
+then do scrut ← find_scrutinee args,
+        return $ (head.const_name, scrut)
+else tactic.fail "head is not match" -- todo improve me
+
+meta def destruct_subst_dsimp (hyp_name : option name) (match_name : name) (scrut : expr) :=
+seq (destruct scrut) $
+   seq (intros_and_subst hyp_name)
+        (all_goals $ match hyp_name with
+            | none := dsimp_target none [match_name, `id_rhs]
+            | some n :=
+              do H ← get_local n,
+                 dsimp_hyp H none [match_name, `id_rhs],
+                return ()
+            end)
+
+meta def break_match_or_fail (hyp_name : option name) : expr → tactic unit
+| (expr.app f g) :=
+  subterms (expr.app f g) (fun head args,
+    do -- trace head,
+       (match_name, scrut) ← find_match head args,
+       destruct_subst_dsimp hyp_name match_name scrut,
+       return ())
+| _ := tactic.fail "break_match: does not support this term"
+
+meta def break_match_hyp : tactic unit :=
+-- The English name for `;`.
+seq
+-- First try to find a hypothesis where break_match succeds
+(until_first_hyp (λ loc,
+  do ty ← infer_type loc,
+     break_match_or_fail loc.local_pp_name ty))
+-- If one succeds, clean up the context for all goals, by first clearing redundant equalities
+-- then try to prune goals using contradiction.
+(do clear_refl_eqs, try contradiction)
+
+meta def break_match_goal : tactic unit :=
+do tgt ← target,
+   match tgt with
+   | (expr.app f g) := break_match_or_fail none (expr.app f g)
+   | _ := return ()
+   end
+
+meta def break_if_or_fail (loc : option name) : expr → tactic unit
+| (expr.app f g) :=
+  subterms (expr.app f g) (fun head args,
+     match head with
+      -- add support for dite
+      | (expr.const `ite _) :=
+        match args with
+        | (pred :: _ ) :=
+          do n ← get_unused_name `p,
+             tactic.trace pred,
+             by_cases pred n,
+             all_goals `[simp * at *] -- replace this
+        -- | (expr.const `dite _) :=
+        --   do n ← get_unused_name `p,
+        --      tactic.trace pred,
+        --      by_cases pred n,
+        --      all_goals `[simp * at *] -- replace this
+        -- | (expr.const `dite _) :=
+        | [] := tactic.fail "should be unreachable"
+        end
+      | _ := tactic.fail "no if"
+      end)
+| _ := tactic.fail "break_if: does not support this term"
+
+meta def is_recursor : name → tactic bool
+| (name.mk_string s n) :=
+  if s = "rec"
+  then return true
+  else return false
+| _ := return false
+
+#eval (is_recursor `prod.rec)
+
+meta def break_irrefutable_or_fail (hyp_name : option name) (h : expr) : tactic unit :=
+  subterms h (fun h args,
+    do is_rec ← (fun b, h.is_constant && b) <$> is_recursor h.const_name,
+       if is_rec
+       then destruct_subst_dsimp hyp_name h.const_name args.ilast
+       else tactic.fail "")
+
+meta def break_irrefutable_hyp : tactic unit :=
+until_first_hyp (λ loc,
+  do ty ← infer_type loc,
+     break_irrefutable_or_fail loc.local_pp_name ty)
+
+meta def break_if_hyp : tactic unit :=
+(until_first_hyp (λ loc,
+  do ty ← infer_type loc,
+     break_if_or_fail loc.local_pp_name ty))
+
+meta def break_if_target : tactic unit :=
+do tgt ← target,
+   match tgt with
+   | (expr.app f g) := break_if_or_fail none (expr.app f g)
+   | _ := return ()
+   end
+
+meta def break_match :=
+break_match_hyp <|> break_match_goal
+
+meta def break_if :=
+break_if_hyp <|> break_if_target
+
+meta def case_split :=
+break_if <|> break_match
+
+open interactive.types
+
+meta def match_head (rhs lhs : expr) : tactic unit :=
+ let head_rhs := rhs.get_app_fn,
+     head_lhs := lhs.get_app_fn
+ in if head_rhs = head_lhs
+ then return ()
+ else tactic.fail "match_head, no match"
+
+-- Not sure about this name anymore
+meta def find_inversion : tactic unit :=
+until_first_hyp $ λ h,
+do ty ← infer_type h,
+   (rhs, lhs) ← match_eq ty,
+   match_head rhs lhs,
+   cases h
+
+/- Interactive Tactics -/
+lemma option_bind_some {α β : Type} :
+  forall (o1 : option α) (o2 : α → option β) v,
+    o1 >>= o2 = some v →
+    exists v', o1 = some v' ∧
+      o2 v' = some v :=
+begin
+  intros, destruct o1 ; intros,
+  unfold bind at *, subst a_1,
+  dsimp [option.bind] at *,
+  cases a,
+  subst a_2,
+  unfold bind at *,
+  dsimp [option.bind] at *,
+  constructor,
+  split, reflexivity,
+  assumption,
+end
+
+meta def simp_option (n : parse lean.parser.ident) : tactic unit :=
+do h ← get_local n,
+   ty ← tactic.infer_type h,
+   (a :: b :: o1 :: o2 :: v :: _) ← tactic.match_expr ``(fun (a b : Type) (o1 : option a) (o2 : a → option b) (v : b), @option.bind a b o1 o2 = some v) ty | tactic.failed,
+   destruct o1 ; intros_and_subst n,
+   tactic.trace o1, tactic.trace o2, tactic.trace v,
+   h ← get_local n,
+   -- dsimp_hyp h none [`bind, `option.bind],
+   return ()
+
+meta def induction_on (induction_var : parse lean.parser.ident) : tactic unit :=
+do tgt ← target,
+   match tgt with
+   | (expr.pi binder_name _ _ _) :=
+     if binder_name = induction_var
+     then do intro binder_name,
+             ivar_local ← get_local binder_name,
+             induction ivar_local,
+             return ()
+     else do intro binder_name, induction_on
+   | _ := tactic.fail $ "induction_on: unknown name `" ++ induction_var.to_string ++ "`"
+   end
+
+run_cmd add_interactive [
+  `induction_on,
+  `simp_option
+]
