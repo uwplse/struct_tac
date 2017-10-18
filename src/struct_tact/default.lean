@@ -1,5 +1,7 @@
 import init.meta.lean.parser
 import .induction_on
+import .auto
+import .simp_option
 
 open tactic
 open interactive
@@ -683,35 +685,6 @@ do ty ← infer_type h,
    (rhs, lhs) ← match_eq ty,
    match_head rhs lhs,
    cases h
-
-/- Interactive Tactics -/
-lemma option_bind_some {α β : Type} :
-  forall (o1 : option α) (o2 : α → option β) v,
-    o1 >>= o2 = some v →
-    exists v', o1 = some v' ∧
-      o2 v' = some v :=
-begin
-  intros, destruct o1 ; intros,
-  unfold bind at *, subst a_1,
-  dsimp [option.bind] at *,
-  cases a,
-  subst a_2,
-  unfold bind at *,
-  dsimp [option.bind] at *,
-  constructor,
-  split, reflexivity,
-  assumption,
-end
-
-meta def simp_option (n : parse lean.parser.ident) : tactic unit :=
-do h ← get_local n,
-   ty ← tactic.infer_type h,
-   (a :: b :: o1 :: o2 :: v :: _) ← tactic.match_expr ``(fun (a b : Type) (o1 : option a) (o2 : a → option b) (v : b), @option.bind a b o1 o2 = some v) ty | tactic.failed,
-   destruct o1 ; intros_and_subst n,
-   tactic.trace o1, tactic.trace o2, tactic.trace v,
-   h ← get_local n,
-   -- dsimp_hyp h none [`bind, `option.bind],
-   return ()
 
 run_cmd add_interactive [
   `induction_on,
