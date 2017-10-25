@@ -2,7 +2,18 @@ open lean
 open tactic
 open interactive
 
-/- Interactive Tactics -/
+@[intro] lemma option_bind_some_back {α β : Type} :
+  forall (o1 : option α) (o2 : α → option β) v v',
+    o1 = some v →
+    o2 v = some v' →
+    o1 >>= o2 = some v' :=
+begin
+  intros,
+  rw a,
+  simp [bind, has_bind.bind, option.bind],
+  rw a_1,
+end
+
 lemma option_bind_some {α β : Type} :
   forall (o1 : option α) (o2 : α → option β) v,
     o1 >>= o2 = some v →
