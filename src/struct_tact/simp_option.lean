@@ -32,8 +32,8 @@ begin
   assumption,
 end
 
-meta def simp_option (n : parse lean.parser.ident) : tactic unit :=
-do h ← get_local n,
+meta def simp_option (hyp_name : parse lean.parser.ident) : tactic unit :=
+do h ← get_local hyp_name,
    ty ← tactic.infer_type h,
    (a :: b :: o1 :: o2 :: v :: _) ← tactic.match_expr
      ``(fun (a b : Type) (o1 : option a) (o2 : a → option b) (v : b), has_bind.bind o1 o2 = some v) ty | tactic.failed,
@@ -44,5 +44,9 @@ do h ← get_local n,
    ex ← get_local n,
    cases ex [vn, n],
    conj ← get_local n,
-   cases conj,
+   r ← get_unused_name `right,
+   l ← get_unused_name `left,
+   cases conj [r, l],
+   get_local hyp_name >>= clear,
+   `[dsimp at r l],
    return ()
