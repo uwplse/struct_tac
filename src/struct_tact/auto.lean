@@ -3,10 +3,6 @@ open lean
 open interactive.types
 open tactic
 
-#check tactic.set_basic_attribute
-
-
-
 meta def auto_attr_handler (inductive_name : name) : command :=
 do e ← get_env,
    when (¬e.is_inductive inductive_name)
