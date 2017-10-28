@@ -108,7 +108,7 @@ meta def break_if_or_fail (loc : option name) : expr → tactic unit
         match args with
         | (pred :: _ ) :=
           do n ← get_unused_name `p,
-             tactic.trace pred,
+             -- tactic.trace pred,
              by_cases pred n,
              all_goals `[simp * at *] -- replace this
         -- | (expr.const `dite _) :=
