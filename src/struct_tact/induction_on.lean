@@ -1,5 +1,3 @@
-import init.meta.lean.parser
-
 open tactic
 open interactive
 

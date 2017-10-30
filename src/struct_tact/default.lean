@@ -1,4 +1,3 @@
-import init.meta.lean.parser
 import .induction_on
 import .auto
 import .simp_option
