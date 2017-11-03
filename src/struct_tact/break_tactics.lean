@@ -61,10 +61,14 @@ then do scrut ← find_scrutinee args,
         return $ (head.const_name, scrut)
 else tactic.fail "head is not match" -- todo improve me
 
+meta def prune_case : tactic unit :=
+  try (contradiction <|> cc)
+
 meta def destruct_subst_dsimp (hyp_name : option name) (match_name : name) (scrut : expr) :=
 seq (destruct scrut) $
-   seq (intros_and_subst hyp_name)
-        (all_goals $ match hyp_name with
+   seq (intros_and_subst hyp_name) $
+     seq (prune_case)
+        (match hyp_name with
             | none := dsimp_target none [match_name, `id_rhs]
             | some n :=
               do H ← get_local n,
@@ -72,12 +76,38 @@ seq (destruct scrut) $
                 return ()
             end)
 
+meta def case_split_rec (hyp_name : option name) (rec : name) (args : list expr) : tactic unit :=
+  do scrutinee ← find_scrutinee args,
+     seq (cases scrutinee) (`[try { dsimp at * }]; prune_case) -- perf problem with dsimp
+
+meta def case_split_cases_on (hyp_name : option name) (rec : name) (args : list expr) : tactic unit :=
+     do let scrutinee := list.head args,
+     seq (cases scrutinee) (`[try { dsimp at * }]; prune_case) -- perf problem with dsimp
+
+meta def case_split_exposed_recursor (hyp_name : option name) : tactic unit :=
+  do term ← match hyp_name with
+  | none := target
+  | some v := get_local v >>= infer_type
+  end,
+  (rhs, lhs) ← match_eq term,
+  -- trace rhs,
+  if rhs.is_app
+  then let fn := rhs.get_app_fn,
+           args := rhs.get_app_args
+       in if fn.is_constant && (fn.const_name.components.ilast = `rec)
+          then case_split_rec hyp_name fn.const_name args
+          else if fn.is_constant && (fn.const_name.components.ilast = `cases_on)
+          then case_split_cases_on hyp_name fn.const_name args
+          else tactic.fail "no recursor found"
+  else return ()
+
 meta def break_match_or_fail (hyp_name : option name) : expr → tactic unit
 | (expr.app f g) :=
   subterms (expr.app f g) (fun head args,
     do -- trace head,
        (match_name, scrut) ← find_match head args,
-       destruct_subst_dsimp hyp_name match_name scrut,
+       seq (destruct_subst_dsimp hyp_name match_name scrut) $
+          repeat (case_split_exposed_recursor hyp_name),
        return ())
 | _ := tactic.fail "break_match: does not support this term"
 
