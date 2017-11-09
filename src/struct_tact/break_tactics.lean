@@ -1,4 +1,5 @@
 import .traversals
+import .debugging
 
 open tactic
 
@@ -76,13 +77,19 @@ seq (destruct scrut) $
                 return ()
             end)
 
+meta def dsimp_at (hyp_name : option name) : tactic unit :=
+match hyp_name with
+| none := dsimp_target
+| some hyp := get_local hyp >>= dsimp_hyp
+end
+
 meta def case_split_rec (hyp_name : option name) (rec : name) (args : list expr) : tactic unit :=
   do scrutinee ← find_scrutinee args,
-     seq (cases scrutinee) (`[try { dsimp at * }]; prune_case) -- perf problem with dsimp
+     seq (cases scrutinee) (seq (try $ dsimp_at hyp_name) prune_case)
 
 meta def case_split_cases_on (hyp_name : option name) (rec : name) (args : list expr) : tactic unit :=
      do let scrutinee := list.head args,
-     seq (cases scrutinee) (`[try { dsimp at * }]; prune_case) -- perf problem with dsimp
+     seq (cases scrutinee) (seq (try $ dsimp_at hyp_name) prune_case)
 
 meta def case_split_exposed_recursor (hyp_name : option name) : tactic unit :=
   do term ← match hyp_name with
@@ -90,7 +97,7 @@ meta def case_split_exposed_recursor (hyp_name : option name) : tactic unit :=
   | some v := get_local v >>= infer_type
   end,
   (rhs, lhs) ← match_eq term,
-  -- trace rhs,
+  -- trace $ "RHS: " ++ to_string rhs,
   if rhs.is_app
   then let fn := rhs.get_app_fn,
            args := rhs.get_app_args
@@ -99,15 +106,15 @@ meta def case_split_exposed_recursor (hyp_name : option name) : tactic unit :=
           else if fn.is_constant && (fn.const_name.components.ilast = `cases_on)
           then case_split_cases_on hyp_name fn.const_name args
           else tactic.fail "no recursor found"
-  else return ()
+  else return () -- tactic.fail "not an equality"
 
 meta def break_match_or_fail (hyp_name : option name) : expr → tactic unit
 | (expr.app f g) :=
   subterms (expr.app f g) (fun head args,
     do -- trace head,
        (match_name, scrut) ← find_match head args,
-       seq (destruct_subst_dsimp hyp_name match_name scrut) $
-          repeat (case_split_exposed_recursor hyp_name),
+       tree_repeat (destruct_subst_dsimp hyp_name match_name scrut) $
+          try $ case_split_exposed_recursor hyp_name,
        return ())
 | _ := tactic.fail "break_match: does not support this term"
 
@@ -140,7 +147,7 @@ meta def break_if_or_fail (loc : option name) : expr → tactic unit
           do n ← get_unused_name `p,
              -- tactic.trace pred,
              by_cases pred n,
-             all_goals `[simp * at *] -- replace this
+             all_goals `[simp * at *; prune_case] -- replace this
         -- | (expr.const `dite _) :=
         --   do n ← get_unused_name `p,
         --      tactic.trace pred,
