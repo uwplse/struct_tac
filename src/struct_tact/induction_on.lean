@@ -70,5 +70,3 @@ do tgt ← target,
      else do intro binder_name, induction_on
    | _ := induction_preserve_constants induction_var
    end
-
-#print prefix nat
