@@ -83,13 +83,16 @@ match hyp_name with
 | some hyp := get_local hyp >>= dsimp_hyp
 end
 
+meta def cases_ (e : expr) : tactic unit :=
+cases e >> return ()
+
 meta def case_split_rec (hyp_name : option name) (rec : name) (args : list expr) : tactic unit :=
   do scrutinee ← find_scrutinee args,
-     seq (cases scrutinee) (seq (try $ dsimp_at hyp_name) prune_case)
+     seq (cases_ scrutinee) (seq (try $ dsimp_at hyp_name) prune_case)
 
 meta def case_split_cases_on (hyp_name : option name) (rec : name) (args : list expr) : tactic unit :=
      do let scrutinee := list.head args,
-     seq (cases scrutinee) (seq (try $ dsimp_at hyp_name) prune_case)
+     seq (cases_ scrutinee) (seq (try $ dsimp_at hyp_name) prune_case)
 
 meta def case_split_exposed_recursor (hyp_name : option name) : tactic unit :=
   do term ← match hyp_name with
@@ -217,7 +220,7 @@ until_first_hyp $ λ h,
 do ty ← infer_type h,
    (rhs, lhs) ← match_eq ty,
    match_head rhs lhs,
-   cases h
+   cases_ h
 
 meta def break_conj_or_fail (ty : expr) (loc : expr) : tactic unit :=
 do tactic.trace ty, tactic.trace loc,

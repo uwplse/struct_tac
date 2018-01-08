@@ -24,7 +24,7 @@ begin
   unfold bind at *, subst a_1,
   dsimp [option.bind] at *,
   cases a,
-  subst a_2,
+  subst a_1,
   unfold bind at *,
   dsimp [option.bind] at *,
   constructor,

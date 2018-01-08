@@ -20,8 +20,6 @@ meta def mk_eqs : list expr → tactic (list name)
               return (n :: ns')
     end
 
--- meta def in_each_case ()
-/-- -/
 meta def induction_preserve_constants (induction_var : name) : tactic unit :=
     do loc ← get_local induction_var,
        ty ← infer_type loc,
@@ -33,7 +31,7 @@ meta def induction_preserve_constants (induction_var : name) : tactic unit :=
               ns ← mk_eqs args,
               -- tactic.trace_state,
               iv ← get_local induction_var,
-              seq (`[induction %%iv])
+              seq (`[induction iv])
                 (do monad.mapm (fun n, get_local n >>= revert) ns,
                     `[try { dsimp * }],
                      intros,
@@ -41,7 +39,7 @@ meta def induction_preserve_constants (induction_var : name) : tactic unit :=
                     -- monad.mapm (fun _, do n ← get_unused_name `eq, intro n >>= subst) ns,
                     return ())
        | _ := do iv ← get_local induction_var,
-                 `[induction %%iv]
+                 `[induction iv]
        end
 
 /-- A specialized version of induction which fixes some flaws present in the default induction tactic.
