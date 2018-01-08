@@ -406,6 +406,7 @@ run_cmd add_interactive [
   `induction_on,
   `simp_option,
   `break_match,
-  `break_if
+  `break_if,
+  `break_conj
   -- `break_irrefutable
 ]

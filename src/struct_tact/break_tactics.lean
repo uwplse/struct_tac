@@ -218,3 +218,12 @@ do ty ← infer_type h,
    (rhs, lhs) ← match_eq ty,
    match_head rhs lhs,
    cases h
+
+meta def break_conj_or_fail (ty : expr) (loc : expr) : tactic unit :=
+do tactic.trace ty, tactic.trace loc,
+   tactic.fail "foo"
+
+meta def break_conj : tactic unit :=
+(until_first_hyp (λ loc,
+  do ty ← infer_type loc,
+     break_conj_or_fail ty loc))
